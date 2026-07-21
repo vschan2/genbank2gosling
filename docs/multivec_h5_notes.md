@@ -1,4 +1,4 @@
-# Understanding Stage 5's multivec `.h5` file
+# Understanding multivec `.h5` file
 
 Notes from working through `scripts/stage5_sequence_track.py`'s bacterial branch — what one-hot encoding produces, what's actually stored in the `clodius` multivec pyramid, and how `h5py`/HDF5 works.
 

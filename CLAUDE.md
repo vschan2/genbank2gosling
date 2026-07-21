@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This repo is spec-first: `README.md` is the authoritative design doc, and `scripts/stage1_parse.py` through `scripts/stage6_assemble.py` are currently empty stubs. When implementing a stage, treat that doc's "Pipeline Stages" and "Output File Summary" sections as the spec, not something to redesign. Implement one stage at a time rather than the whole pipeline in one pass — it's easier to review and correct.
+This repo is spec-first: `README.md` is the authoritative design doc. All six stages (`scripts/stage1_parse.py` through `scripts/stage6_group.py`) are now implemented and verified against the real input genomes. When touching a stage, treat that doc's "Pipeline Stages" and "Output File Summary" sections as the spec, not something to redesign. Implement/change one stage at a time rather than the whole pipeline in one pass — it's easier to review and correct.
 
-`GenBank_Pipeline_Setup_Checklist.md` records the environment setup decisions already made (see below); don't re-litigate them unless the user asks.
+`specs/spec-001-genbank-pipeline-setup.md` records the environment setup decisions already made (see below); don't re-litigate them unless the user asks.
 
 ## What this pipeline does
 
@@ -47,7 +47,7 @@ Each stage takes the previous stage's output as input; stages 2–5 all ultimate
 5. **Sequence track** (`stage5_sequence_track.py`) — method branches by genome size, since Gosling loads inline data client-side with no automatic tiling:
    - Mitogenomes (small): inline per-base JSON, `<genome>_sequence.json`. Runs anywhere.
    - Bacteria (large): one-hot encode A/T/G/C → `clodius` multi-resolution multivec pyramid → static tile directory `<genome>_multivec/`. **Must run in WSL2/Linux** (pysam dependency).
-6. **Cluster assembly** (`stage6_assemble.py`) — group each genome's four outputs (FASTA/meta, annotations BED, GC-skew BedGraph, sequence track) into `output/mitogenome_cluster/` or `output/bacterial_cluster/`. Pure grouping step — keep the two clusters' intermediate outputs separate from earlier stages so this doesn't turn into cleanup.
+6. **Cluster grouping** (`stage6_group.py`) — group each genome's four outputs (FASTA/meta, annotations BED, GC-skew BedGraph, sequence track) into `output/mitogenome_cluster/` or `output/bacterial_cluster/`. Pure grouping step — keep the two clusters' intermediate outputs separate from earlier stages so this doesn't turn into cleanup.
 
 Downstream (not part of this pipeline, but shapes what the outputs need to support): each cluster becomes a Gosling.js multi-view stack, one row-group per genome, with a shared `linkingId` on the `x` channel across all row-groups in a cluster so pan/zoom stays synchronized on absolute base-pair position. Homology/synteny linking across genomes is a deferred future extension — don't scope it into stage implementations now.
 

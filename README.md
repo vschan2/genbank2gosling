@@ -11,10 +11,6 @@ The design targets two independent comparison contexts ("clusters"). Genomes *wi
 
 Draft/contig-level assemblies (multiple unordered scaffolds) are explicitly **out of scope** — each genome must be a single complete, contiguous record before entering the pipeline.
 
-## Status
-
-Design is finalized; implementation has not started. `scripts/stage1_parse.py` through `scripts/stage6_assemble.py` are empty stubs — see [Pipeline Stages](#pipeline-stages) below for the spec each one implements.
-
 ## Repository layout
 
 ```
@@ -31,16 +27,17 @@ genbank-pipeline/
 │   ├── stage3_annotations.py
 │   ├── stage4_gc_skew.py
 │   ├── stage5_sequence_track.py
-│   └── stage6_assemble.py
-├── CLAUDE.md                             # guidance for Claude Code
-└── GenBank_Pipeline_Setup_Checklist.md   # environment setup walkthrough (Windows/WSL2)
+│   └── stage6_group.py
+├── specs/
+│   └── spec-001-genbank-pipeline-setup.md  # environment setup walkthrough (Windows/WSL2)
+└── CLAUDE.md                             # guidance for Claude Code 
 ```
 
 `input/` and `output/` are gitignored (source data is external; outputs are regenerated), so a fresh clone will have empty `input/mitogenomes/` and `input/bacteria/` directories — populate them with your own complete-genome `.gb` files before running the pipeline.
 
 ## Setup
 
-The pipeline runs inside a WSL2 `dnavis-env` conda environment (not native Windows), because Stage 5's bacterial branch depends on `clodius`/`pysam`, which have no native Windows support. See `GenBank_Pipeline_Setup_Checklist.md` for the full Windows/WSL2 install walkthrough.
+The pipeline runs inside a WSL2 `dnavis-env` conda environment (not native Windows), because Stage 5's bacterial branch depends on `clodius`/`pysam`, which have no native Windows support. See `specs/spec-001-genbank-pipeline-setup.md` for the full Windows/WSL2 install walkthrough.
 
 ```bash
 conda activate dnavis-env
@@ -59,7 +56,7 @@ python scripts/stage2_sequence.py
 python scripts/stage3_annotations.py
 python scripts/stage4_gc_skew.py
 python scripts/stage5_sequence_track.py
-python scripts/stage6_assemble.py
+python scripts/stage6_group.py
 ```
 
 Stage 5's bacterial (`clodius`) branch must run in WSL2/Linux.
@@ -131,7 +128,7 @@ Multivec construction (bacterial genomes only):
 2. Aggregate into a multi-resolution pyramid with `clodius` (same tiling concept used for BigWig tracks).
 3. Export as a static tile directory (no persistent tile server required — just static file hosting).
 
-### Stage 6 — Cluster assembly
+### Stage 6 — Group species cluster
 - Each genome's outputs (FASTA/length, annotation BED/CSV, GC skew BedGraph/CSV, + sequence track data) are grouped per cluster into `output/mitogenome_cluster/` or `output/bacterial_cluster/`.
 - Clusters are never mixed in a single chart.
 
@@ -154,6 +151,5 @@ Multivec construction (bacterial genomes only):
 
 ## Open Items
 
-- Implement Stages 1–6 (see [Status](#status)).
 - Homology/synteny linking (cross-genome comparison) — design deferred to a later phase of the project.
 - **(Optional)** Stage 4's windowed GC skew currently truncates the final sliding window at the end of the sequence rather than wrapping around, even though all genomes in this pipeline are circular. SkewIT ("The Skew Index Test for large-scale GC Skew analysis of bacterial genomes, Lu & Salzberg, 2020) handles this by appending the first `L/2` bases of the sequence onto its end before windowing, so boundary windows are full-length instead of shrinking. The cumulative GC skew column doesn't need this treatment — per "Analyzing genomes with cumulative skew diagrams," (Grigoriev, 1998) cumulative skew is a single running pass over the sequence and has no windowing edge case to handle.
