@@ -156,3 +156,4 @@ Multivec construction (bacterial genomes only):
 
 - Implement Stages 1–6 (see [Status](#status)).
 - Homology/synteny linking (cross-genome comparison) — design deferred to a later phase of the project.
+- **(Optional)** Stage 4's windowed GC skew currently truncates the final sliding window at the end of the sequence rather than wrapping around, even though all genomes in this pipeline are circular. SkewIT ("The Skew Index Test for large-scale GC Skew analysis of bacterial genomes, Lu & Salzberg, 2020) handles this by appending the first `L/2` bases of the sequence onto its end before windowing, so boundary windows are full-length instead of shrinking. The cumulative GC skew column doesn't need this treatment — per "Analyzing genomes with cumulative skew diagrams," (Grigoriev, 1998) cumulative skew is a single running pass over the sequence and has no windowing edge case to handle.

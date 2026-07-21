@@ -119,8 +119,8 @@ So the plan below is a **hybrid setup**:
 [x] **Stage 1 — Parse:** `SeqIO.parse(..., "genbank")`; capture accession, organism, length, topology from `LOCUS`; flag/exclude any record that isn't a single complete contig.
 [x] **Stage 2 — Sequence extraction:** write `<genome>.fasta` + `<genome>_meta.json` (length, topology, accession).
 [x] **Stage 3 — Annotations:** walk `record.features`, filter to gene-level/functional types, extract `start/end/strand/type/name` (name preference: `gene` → `product` → `locus_tag`); write `<genome>_annotations.bed`.
-[ ] **Stage 4 — GC skew:** implement sliding-window `(G−C)/(G+C)` + cumulative skew, with `window ≈ length/1000`, `step ≈ window/5` (auto-scaled per genome, not fixed); write `<genome>_gc_skew.bedgraph`.
-[ ] **Stage 5 — Sequence track (branches by genome size):**
+[x] **Stage 4 — GC skew:** implement sliding-window `(G−C)/(G+C)` + cumulative skew, with `window ≈ length/1000`, `step ≈ window/5` (auto-scaled per genome, not fixed); write `<genome>_gc_skew.bedgraph`.
+[x] **Stage 5 — Sequence track (branches by genome size):**
   - Mitogenomes: inline per-base JSON/CSV → `<genome>_sequence.json` (native Windows or WSL, no clodius needed).
   - Bacteria: one-hot encode A/T/G/C → `clodius` multi-resolution pyramid → static tile directory `<genome>_multivec/` (**must run in WSL2/Linux**).
 [ ] **Stage 6 — Cluster assembly:** group each genome's four outputs (FASTA/meta, annotations, GC skew, sequence track) per cluster; keep mitogenome and bacterial clusters separate — never mixed in one chart.
