@@ -26,13 +26,19 @@ TILE_SIZE = 1024
 
 
 def write_sequence_json(genome: ParsedGenome) -> Path:
-    """Write <genome>_sequence.json: the full per-base sequence, inline."""
+    """Write <genome>_sequence.json: the full per-base sequence, inline, as
+    positioned records (Gosling's json data type needs an explicit genomic
+    interval per row, not an implied-by-index flat array)."""
     out_dir = OUTPUT_DIR / genome.cluster
     out_dir.mkdir(parents=True, exist_ok=True)
 
     path = out_dir / f"{genome.source_file.stem}_sequence.json"
     seq = str(genome.record.seq).upper()
-    path.write_text(json.dumps(list(seq)))
+    records = [
+        {"chrom": genome.accession, "start": i, "end": i + 1, "base": base}
+        for i, base in enumerate(seq)
+    ]
+    path.write_text(json.dumps(records))
     return path
 
 

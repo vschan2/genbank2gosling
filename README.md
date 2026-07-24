@@ -120,7 +120,7 @@ The method depends on genome size, since Gosling loads inline data client-side w
 
 | Genome scale | Method | Rationale |
 |---|---|---|
-| Small (mitogenomes, tens of kb) | Inline JSON/CSV, one row per base; letters rendered via a `text` mark gated by a zoom-level `visibility` rule | Small enough to load entirely in-browser; no tiling infrastructure needed |
+| Small (mitogenomes, tens of kb) | Inline JSON, one positioned record per base (`{chrom, start, end, base}`); letters rendered via a `text` mark gated by a zoom-level `visibility` rule | Small enough to load entirely in-browser; no tiling infrastructure needed. Explicit `start`/`end` per record (rather than an implied-by-index flat array) matches what Gosling's `json` data type expects (`chromosomeField`/`genomicFields`) |
 | Large (bacterial chromosomes, Mb-scale) | Multivec tile pyramid, generated offline via `clodius` (HiGlass's tiling CLI), served as static tiles | A flat per-base table (millions of rows) is too large to load/parse as one inline block; tiling lets the viewer fetch only the visible window at the current zoom level |
 
 Multivec construction (bacterial genomes only):
@@ -131,6 +131,7 @@ Multivec construction (bacterial genomes only):
 ### Stage 6 — Group species cluster
 - Each genome's outputs (FASTA/length, annotation BED/CSV, GC skew BedGraph/CSV, + sequence track data) are grouped per cluster into `output/mitogenome_cluster/` or `output/bacterial_cluster/`.
 - Clusters are never mixed in a single chart.
+- Also writes one `manifest.json` at the top of each cluster output directory, listing the genomes grouped into it (`id`, `organism`, `accession`, `length` per genome) — pure grouping metadata, doesn't filter or reorder anything.
 
 ## Gosling.js View Design (downstream of this pipeline)
 
@@ -146,8 +147,9 @@ Multivec construction (bacterial genomes only):
 | `<genome>_meta.json` | JSON | Length, topology, accession, organism |
 | `<genome>_annotations.bed` | BED/CSV | Gene/feature intervals with strand, type, name |
 | `<genome>_gc_skew.bedgraph` | BedGraph/CSV | Windowed and cumulative GC skew |
-| `<genome>_sequence.json` (mitogenomes) | JSON | Per-base sequence, inline |
+| `<genome>_sequence.json` (mitogenomes) | JSON | Per-base sequence, inline, as positioned records `{chrom, start, end, base}` |
 | `<genome>_multivec/` (bacteria) | Static tile directory | Multi-resolution per-base pyramid |
+| `manifest.json` (per cluster, at `output/<cluster>/manifest.json`) | JSON | List of genomes grouped into that cluster: `id`, `organism`, `accession`, `length` |
 
 ## Open Items
 

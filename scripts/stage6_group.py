@@ -3,6 +3,7 @@ final cluster directory. Pure grouping step; does not recompute anything."""
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -55,12 +56,44 @@ def group_genome(genome: ParsedGenome) -> Path:
     return dest_dir
 
 
+def write_manifest(cluster: str, genomes: list[ParsedGenome]) -> Path:
+    """Write manifest.json at the top of one cluster's output directory, listing
+    the genomes grouped into it. Pure metadata: doesn't filter or reorder."""
+    cluster_dir = CLUSTER_OUTPUT_DIRS[cluster]
+    cluster_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "cluster": cluster_dir.name,
+        "genomes": [
+            {
+                "id": g.source_file.stem,
+                "organism": g.organism,
+                "accession": g.accession,
+                "length": g.length,
+            }
+            for g in genomes
+        ],
+    }
+
+    path = cluster_dir / "manifest.json"
+    path.write_text(json.dumps(manifest, indent=2) + "\n")
+    return path
+
+
 def main() -> None:
     genomes, excluded = parse_all()
 
+    by_cluster: dict[str, list[ParsedGenome]] = {cluster: [] for cluster in CLUSTER_OUTPUT_DIRS}
     for genome in genomes:
         dest_dir = group_genome(genome)
+        by_cluster[genome.cluster].append(genome)
         print(f"{genome.cluster:<12} {genome.source_file.stem} -> {dest_dir.relative_to(REPO_ROOT)}")
+
+    for cluster, cluster_genomes in by_cluster.items():
+        if not cluster_genomes:
+            continue
+        manifest_path = write_manifest(cluster, cluster_genomes)
+        print(f"{cluster:<12} manifest -> {manifest_path.relative_to(REPO_ROOT)}")
 
     if excluded:
         print(f"\nSkipped {len(excluded)} excluded file(s) (see Stage 1 output for reasons).")
