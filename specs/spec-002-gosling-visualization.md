@@ -7,8 +7,8 @@ Design for the browser-based comparative genome views built on top of the pipeli
 Decisions locked in for this spec (confirmed with user before writing):
 
 - **Deliverable**: a React app via **Next.js**, using the official [`gosling-react`](https://github.com/gosling-lang/gosling-react) `GoslingComponent` wrapper around `gosling.js`. Supersedes the earlier "static HTML + CDN" decision — interactive features (checkbox picker driving live re-renders, PNG/PDF export, future click-to-inspect) are cleaner as React state/component composition than hand-rolled DOM manipulation, and Next.js gives a natural home for the API routes needed to read pipeline output server-side (see "Running it" below).
-- **Bacterial multivec serving**: [higlass-server](https://github.com/higlass/higlass-server) run as a lightweight **non-Docker** install — git clone + a dedicated venv + `pip install -r requirements.txt`, sqlite backend, plain `manage.py runserver` — unchanged in mechanism from the earlier decision, but the *justification* is corrected here: higlass-server's own `requirements.txt`/`settings.py` show SQLite as the default DB (no Postgres dependency at all) and Redis as optional (only wired in if `REDIS_HOST` is set in the environment; the app runs fine without it). There's no documented RAM minimum for `higlass-docker` itself either. The ~6GB figure that motivated avoiding Docker was almost certainly **Docker Desktop's own WSL2 VM overhead**, not higlass-server's actual footprint. That said, the source-install path is still the right call locally: it's the officially documented lightweight method and sidesteps Docker Desktop entirely. Multivec itself still requires *some* HiGlass-API server — confirmed against Gosling's own docs, which state multivec tiles "require a HiGlass server to access them in Gosling" even when pre-aggregated — so this keeps the multivec format (Stage 5 untouched) and only changes how it's served. (Alternatives considered and ruled out: Gosling has no native FASTA/indexed-sequence track, so a range-request-only static approach isn't available; re-encoding as a static bigwig track was viable but would mean redoing Stage 5's already-verified bacterial branch, so it was passed over; higlass.io's free public hosting was ruled out because it means uploading unpublished research genome data to a third-party server.)
-- **Code location**: new top-level `web/` directory (the Next.js app), parallel to `scripts/`, `input/`, `output/`. higlass-server's setup scripts move to a top-level `higlass/` directory (previously nested under `viz/higlass/`, which no longer makes sense once the page code moves to `web/` — higlass-server is an independent service, not part of the frontend).
+- **Bacterial multivec serving**: [higlass-server](https://github.com/higlass/higlass-server) run as a lightweight **non-Docker** install — git clone + a dedicated **conda env built from higlass-server's own `environment.yml`**, sqlite backend, plain `manage.py runserver`. The *justification* for avoiding Docker: higlass-server's own `requirements.txt`/`settings.py` show SQLite as the default DB (no Postgres dependency at all) and Redis as optional (only wired in if `REDIS_HOST` is set in the environment; the app runs fine without it). There's no documented RAM minimum for `higlass-docker` itself either. The ~6GB figure that motivated avoiding Docker was almost certainly **Docker Desktop's own WSL2 VM overhead**, not higlass-server's actual footprint. That said, the source-install path is still the right call locally: it's the officially documented lightweight method and sidesteps Docker Desktop entirely. Multivec itself still requires *some* HiGlass-API server — confirmed against Gosling's own docs, which state multivec tiles "require a HiGlass server to access them in Gosling" even when pre-aggregated — so this keeps the multivec format (Stage 5 untouched) and only changes how it's served. (Alternatives considered and ruled out: Gosling has no native FASTA/indexed-sequence track, so a range-request-only static approach isn't available; re-encoding as a static bigwig track was viable but would mean redoing Stage 5's already-verified bacterial branch, so it was passed over; higlass.io's free public hosting was ruled out because it means uploading unpublished research genome data to a third-party server.)
+- **Code location**: new top-level `web/` directory (the Next.js app), parallel to `scripts/`, `input/`, `output/`. The higlass-server *checkout* lives at `higlass-server/`, **outside this repo entirely** — a sibling directory of `genbank-pipeline/` itself (since higlass-server is an independent service with its own git history/conda-env/dependency set, not project source). The scripts that drive that checkout (`setup.sh`, `register-tilesets.sh`, `run-server.sh`) live *inside* this repo instead, in `higlass-server-ops/`, precisely because the checkout itself is a flat, pristine upstream clone with no room for our own files mixed in — see "higlass-server setup" below.
 - **Pipeline invocation from the UI**: out of scope for the immediate goal. If added, it's a Next.js API route that spawns `scripts/stageN_*.py` as a subprocess — no FastAPI. See `specs/spec-deferred-future-work.md` for why FastAPI is deferred rather than adopted now.
 - **Genome selection**: each cluster page shows an in-page checkbox picker over every genome in that cluster; the Gosling spec is rebuilt from whatever's currently checked, via React state — not a fixed all-genomes chart.
 - **Picker data source**: Stage 6 writes a small `manifest.json` per cluster listing its genomes (unchanged from the earlier decision).
@@ -38,37 +38,45 @@ Two small additions to existing stages, made in `scripts/` and documented in `RE
    ```
    (`id` matches the genome's output subdirectory name and file-name prefix, so the viz layer can build all four file paths from it directly.)
 
-## Repository layout (new)
+## Repository layout
+
+The **higlass-server checkout itself** lives outside `genbank-pipeline/` entirely — a sibling directory, one level up. But the three small scripts that drive it (`setup.sh`, `register-tilesets.sh`, `run-server.sh`) live *inside* `genbank-pipeline/`, in their own `higlass-server-ops/` folder, tracked by this repo's git like everything else in `scripts/`/`web/`. Splitting it this way avoids a chicken-and-egg problem: `setup.sh` needs to `git clone` higlass-server into an empty directory, which it can't do if our own scripts are already sitting inside that same directory — and mixing our scripts into someone else's upstream checkout (where they'd show up as untracked files in *its* `.git`) would be messy regardless.
 
 ```
-genbank-pipeline/
-├── web/                              # Next.js + React app
-│   ├── app/
-│   │   ├── mitogenome/page.tsx       # cluster 1 view: picker + multi-view stack
-│   │   ├── bacterial/page.tsx        # cluster 2 view: picker + multi-view stack
-│   │   └── api/
-│   │       └── genomes/
-│   │           └── [cluster]/[...path]/route.ts   # reads output/ server-side, see "Running it"
-│   ├── components/
-│   │   ├── GenomePicker.tsx          # checkbox list, reads a manifest, controls selection state
-│   │   ├── ClusterView.tsx           # wraps GoslingComponent, exposes Download PNG/PDF button
-│   │   └── trackStyles.ts            # shared feature-type color palette, track heights
-│   ├── lib/
-│   │   ├── buildSpec.ts              # pure function: selected genome list -> Gosling spec JSON
-│   │   └── manifest.ts               # fetch/type helpers for manifest.json
-│   ├── package.json
-│   └── next.config.js
-└── higlass/
-    ├── setup.sh                      # one-time: clones higlass-server, creates a venv, installs deps, runs migrate
-    ├── run-server.sh                 # starts `manage.py runserver` (sqlite) on localhost:8989
-    ├── register-tilesets.sh          # copies + ingests each *.multires.h5 as a tileset
-    ├── higlass-server-src/           # gitignored: cloned higlass-server checkout + its own venv
-    └── hg-data/                      # gitignored: local copies of .h5 files the server serves from
+parent-dir/
+├── genbank-pipeline/                 # this repo
+│   ├── scripts/
+│   ├── input/                        # gitignored
+│   ├── output/                       # gitignored
+│   ├── higlass-server-ops/           # tracked by this repo; drives the sibling higlass-server/ checkout
+│   │   ├── setup.sh                  # one-time: clones higlass-server, creates its conda env, runs migrate
+│   │   ├── register-tilesets.sh      # copies + ingests each *.multires.h5 as a tileset
+│   │   └── run-server.sh             # starts `manage.py runserver` (sqlite) on localhost:8989
+│   └── web/                          # Next.js + React app
+│       ├── app/
+│       │   ├── mitogenome/page.tsx       # cluster 1 view: picker + multi-view stack
+│       │   ├── bacterial/page.tsx        # cluster 2 view: picker + multi-view stack
+│       │   └── api/
+│       │       └── genomes/
+│       │           └── [cluster]/[...path]/route.ts   # reads output/ server-side, see "Running it"
+│       ├── components/
+│       │   ├── GenomePicker.tsx          # checkbox list, reads a manifest, controls selection state
+│       │   ├── ClusterView.tsx           # wraps GoslingComponent, exposes Download PNG/PDF button
+│       │   └── trackStyles.ts            # shared feature-type color palette, track heights
+│       ├── lib/
+│       │   ├── buildSpec.ts              # pure function: selected genome list -> Gosling spec JSON
+│       │   └── manifest.ts               # fetch/type helpers for manifest.json
+│       ├── package.json
+│       └── next.config.js
+└── higlass-server/                   # NOT part of the genbank-pipeline git repo — pristine upstream clone
+    └── media/hg-data/                # local copies of .h5 files the server serves from (must be inside MEDIA_ROOT)
 ```
 
-`web/`'s API routes read pipeline output directly from `../output/mitogenome_cluster/` and `../output/bacterial_cluster/` server-side at request time (including `manifest.json`) — outputs are not copied or duplicated into `web/`, except for the higlass ingestion cache noted below. Since `output/` is gitignored, this keeps the same "regenerate, don't commit" contract the rest of the repo already uses; `higlass/higlass-server-src/` and `hg-data/` are gitignored for the same reason (external tool checkout + a local data cache, not project source). `web/node_modules/` and `web/.next/` are gitignored as standard Next.js build artifacts.
+`web/`'s API routes read pipeline output directly from `../output/mitogenome_cluster/` and `../output/bacterial_cluster/` server-side at request time (including `manifest.json`) — outputs are not copied or duplicated into `web/`. Since `output/` is gitignored, this keeps the same "regenerate, don't commit" contract the rest of the repo already uses. `web/node_modules/` and `web/.next/` are gitignored as standard Next.js build artifacts.
 
-higlass-server gets its own venv (inside `higlass-server-src/`) rather than living in `dnavis-env` — its Django/pinned dependency versions have no reason to line up with clodius/biopython/pandas's, and keeping it isolated avoids a conflict resolution headache in the conda env the rest of the pipeline depends on.
+The external `higlass-server/` checkout (including its conda env and `media/hg-data/`) needs **no gitignore entries at all** — it lives entirely outside `genbank-pipeline/`'s working tree, so it was never a candidate for being tracked here in the first place. `higlass-server-ops/`, by contrast, *is* committed to this repo like any other project code — it's just three small shell scripts, no generated data.
+
+higlass-server gets its own conda env (built from its own `environment.yml`, see "higlass-server setup" below) rather than living in `dnavis-env` — its Django/pinned dependency versions have no reason to line up with clodius/biopython/pandas's, and keeping it isolated avoids a conflict resolution headache in the conda env the rest of the pipeline depends on.
 
 ## Running it
 
@@ -82,15 +90,15 @@ Two local services, both dev-only (no deployment target yet — see `specs/spec-
    # open http://localhost:3000/mitogenome
    ```
    Unlike the earlier static-HTML plan (a plain `python -m http.server` rooted at the repo root, so `fetch('../output/...')` resolved directly), Next.js's dev server only serves `web/public/` and its own routes — it can't serve an arbitrary sibling directory like `../output/` to the browser directly. So pipeline output is read **server-side**, inside `web/app/api/genomes/[cluster]/[...path]/route.ts`, using Node's `fs` to read from `../output/<cluster>/...` and return it as the response; the browser fetches from the same-origin `/api/genomes/...` path, never `../output/` directly. This also happens to be exactly the seam a future FastAPI service would slot into later (see deferred spec) — the frontend's fetch calls wouldn't need to change, only what's behind `/api/genomes/...`.
-2. **higlass-server** (bacterial cluster only), lightweight non-Docker setup — see "higlass-server setup" below for what each script does:
+2. **higlass-server** (bacterial cluster only), lightweight non-Docker setup, driven from `higlass-server-ops/` inside this repo but standing up its actual checkout as a **sibling of `genbank-pipeline/`** — see "higlass-server setup" below for what each script does:
    ```bash
-   cd higlass
-   ./setup.sh               # one-time: clone + venv + pip install + migrate
+   cd higlass-server-ops
+   ./setup.sh               # one-time or manually follow the step in this script: clone (to ../../higlass-server) + conda env + migrate
    ./register-tilesets.sh   # re-run any time bacterial Stage 5/6 output changes
    ./run-server.sh          # foreground; serves http://localhost:8989 until Ctrl+C
    # in another terminal/tab: open http://localhost:3000/bacterial
    ```
-   The mitogenome page has no dependency on this — it's inline JSON end-to-end and works with step 1 alone.
+   All three scripts default to `../../higlass-server` (i.e. a sibling of `genbank-pipeline/`) for the checkout location, overridable via `HIGLASS_SERVER_DIR` — see the scripts below. The mitogenome page has no dependency on this — it's inline JSON end-to-end and works with step 1 alone.
 
 ## Genome selection (flexible N-way comparison)
 
@@ -115,60 +123,66 @@ Row-group order: same order the genomes appear in `manifest.json` (i.e. `stage6_
 
 ## higlass-server setup (local, no Docker)
 
-`higlass/` holds everything needed to stand up a local HiGlass tileset server for the bacterial cluster's multivec tracks — Gosling can't read `.multires.h5` directly in-browser, it needs to fetch tiles over HTTP from a server implementing the HiGlass tileset API. higlass-server is the reference implementation, run here as a plain Django dev server (sqlite, no Postgres/Redis required) — see the corrected justification in "Decisions locked in" above for why Docker was ruled out.
+`higlass-server/` holds everything needed to stand up a local HiGlass tileset server for the bacterial cluster's multivec tracks — Gosling can't read `.multires.h5` directly in-browser, it needs to fetch tiles over HTTP from a server implementing the HiGlass tileset API. higlass-server is the reference implementation, run here as a plain Django dev server (sqlite, no Postgres/Redis required) — see the corrected justification in "Decisions locked in" above for why Docker was ruled out. As covered in "Repository layout" above, `higlass-server/` is checked out as a **sibling of `genbank-pipeline/`**, not inside it — so `register-tilesets.sh` below needs to be told where the pipeline's `output/bacterial_cluster/` lives rather than assuming it's the parent directory.
 
-**`setup.sh`** — one-time: clones higlass-server and sets it up in its own venv, isolated from `dnavis-env`:
+**Revised after a real end-to-end smoke test** (ingest + serve against one actual bacterial genome's `.multires.h5`, not higlass-server's bundled example data) — this surfaced three concrete, verified issues that reshape the setup below from what was originally planned:
+
+1. **Install via conda, not a `python3.7` venv + `pip install -r requirements.txt`.** higlass-server ships its own `environment.yml` (`python>=3.6`, conda-forge + bioconda channels) — that's the officially-supported install path, because `pybbi` is a C-extension package that's far easier to get as a prebuilt conda-forge/bioconda binary than to build from a pip sdist. `setup.sh` below uses that.
+2. **The checkout is flat, not nested — and it's not where our scripts live.** `higlass-server/` *is* the higlass-server checkout itself (its own `.git`, `manage.py`, `media/`, etc. live directly inside it), with no wrapper directory or nested `higlass-server-src/` subfolder — which is exactly why `setup.sh`/`register-tilesets.sh`/`run-server.sh` live in `genbank-pipeline/higlass-server-ops/` instead (see "Repository layout" above): there's no room to keep our own scripts inside a pristine upstream clone. `hg-data/` for ingested files must live *inside* Django's `MEDIA_ROOT` (`higlass-server/media/`, confirmed by reading `higlass_server/settings.py`) — ingesting a file that lives outside `MEDIA_ROOT` (e.g. referencing `output/bacterial_cluster/.../*.multires.h5` in place via `--no-upload`) fails at serve time with `SuspiciousFileOperation: ... is located outside of the base path component`. So the copy-into-`hg-data/`-before-ingesting step is a **hard requirement**, not tidiness.
+3. **Tileset UIDs must not contain periods.** higlass-server's tile-serving endpoint parses a requested tile ID by splitting on `.` and taking the *first* segment as the tileset UUID (`tilesets/views.py`, `tile_id.split('.')`, `tileset_uuid = tile_id_parts[0]`). Every genome ID in this pipeline's manifests contains a period (e.g. `C.callunae_DSC_20147_CP004354`, from the `Genus-abbrev.species` naming convention) — passed straight through as `--uid`, the tiles endpoint reads only `"C"` as the UUID and 500s with `Tileset.DoesNotExist`. `register-tilesets.sh` below sanitizes the UID (`.` → `-`) before registering; `buildSpec.ts` must use that same sanitized form for `tilesetUid`, not the raw manifest `id`.
+4. **Pin `clodius` to the version that wrote the file, not whatever the env resolves to.** `environment.yml` pins `clodius==0.12.0`/`h5py==2.6.0`, but conda's solver doesn't actually honor that on a modern system — it resolved `clodius 0.18.0` + `h5py 3.8.0` instead. `clodius 0.18.0`'s `multivec.py` unconditionally calls `.decode("utf8")` on HDF5 string attributes, assuming `bytes`; `h5py>=3` returns native `str`, so `tileset_info()` crashes with `AttributeError: 'str' object has no attribute 'decode'`. This is a real version-skew bug between the clodius that *wrote* the file (`dnavis-env`'s `clodius 0.20.4`, which already has an `isinstance(row_infos[0], str)` guard for this) and the clodius *reading* it. Confirmed fix: `pip install "clodius==0.20.4"` inside the `higlass-server` conda env (a pure-Python wheel, no `Requires-Python` floor — verified via `pip install --dry-run` that every dependency, including `pysam`/`pydantic`/`pandas`, already resolves cleanly under the env's Python 3.7; only `cooler` bumps alongside it, to `0.9.3`). `setup.sh` installs this version explicitly rather than trusting whatever `environment.yml` resolves to.
+
+All three scripts below live in `genbank-pipeline/higlass-server-ops/` and default `HIGLASS_SERVER_DIR` to `$SCRIPT_DIR/../../higlass-server` — i.e. a sibling of `genbank-pipeline/` — overridable via the environment if the checkout lives elsewhere relative to this repo.
+
+**`setup.sh`** — one-time: clones higlass-server (flat) into `HIGLASS_SERVER_DIR`, creates a dedicated conda env from its own `environment.yml`, then overrides the `clodius` pin to the version verified against this pipeline's output:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+HIGLASS_SERVER_DIR="${HIGLASS_SERVER_DIR:-$SCRIPT_DIR/../../higlass-server}"
 
-if [[ ! -d higlass-server-src ]]; then
-  git clone https://github.com/higlass/higlass-server.git higlass-server-src
+if [[ ! -d "$HIGLASS_SERVER_DIR/.git" ]]; then
+  git clone https://github.com/higlass/higlass-server.git "$HIGLASS_SERVER_DIR"
 fi
 
-cd higlass-server-src
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-python manage.py migrate
-deactivate
+cd "$HIGLASS_SERVER_DIR"
+conda env create -f environment.yml -n higlass-server || conda env update -f environment.yml -n higlass-server
+conda run -n higlass-server pip install "clodius==0.20.4"   # environment.yml's pin doesn't match dnavis-env's writer version; see notes above
+conda run -n higlass-server python manage.py migrate
 
-echo "higlass-server installed. Run ./register-tilesets.sh then ./run-server.sh."
+echo "higlass-server installed at $HIGLASS_SERVER_DIR. Run ./register-tilesets.sh then ./run-server.sh."
 ```
 
-**`register-tilesets.sh`** — copies each bacterial genome's `.multires.h5` into `hg-data/` (flattened, so it's addressed by a simple filename regardless of the nested `output/` directory structure) and ingests it into higlass-server's sqlite DB via its management command, keyed by the manifest `id` so `buildSpec.ts` can reference a predictable tileset UID. This is a DB write, not an HTTP call, so it doesn't require `run-server.sh` to be running at the same time:
+**`register-tilesets.sh`** — copies each bacterial genome's `.multires.h5` into `$HIGLASS_SERVER_DIR/media/hg-data/` (inside higlass-server's `MEDIA_ROOT`, flattened so it's addressed by a simple filename regardless of the nested `output/` directory structure), sanitizes its manifest `id` into a dot-free tileset UID, and ingests it into higlass-server's sqlite DB via its management command. This is a DB write, not an HTTP call, so it doesn't require `run-server.sh` to be running at the same time. Since this script lives inside `genbank-pipeline/higlass-server-ops/`, the pipeline's own `output/bacterial_cluster/` is found relative to itself — no separate override needed for that half:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BACTERIAL_DIR="$REPO_ROOT/output/bacterial_cluster"
-HG_DATA_DIR="$SCRIPT_DIR/hg-data"
+HIGLASS_SERVER_DIR="${HIGLASS_SERVER_DIR:-$SCRIPT_DIR/../../higlass-server}"
+BACTERIAL_DIR="$SCRIPT_DIR/../output/bacterial_cluster"
+HG_DATA_DIR="$HIGLASS_SERVER_DIR/media/hg-data"
 
 mkdir -p "$HG_DATA_DIR"
-cd "$SCRIPT_DIR/higlass-server-src"
-source .venv/bin/activate
+cd "$HIGLASS_SERVER_DIR"
 
 for genome_dir in "$BACTERIAL_DIR"/*/; do
   genome="$(basename "$genome_dir")"
   h5_file="$genome_dir${genome}_multivec/${genome}.multires.h5"
+  uid="${genome//./-}"   # tile IDs are dot-delimited server-side; a "." in the UID breaks tile lookups
 
   if [[ ! -f "$h5_file" ]]; then
     echo "WARNING: missing $h5_file, skipping $genome" >&2
     continue
   fi
 
-  cp "$h5_file" "$HG_DATA_DIR/${genome}.multires.h5"
-  python manage.py ingest_tileset \
-    --filename "$HG_DATA_DIR/${genome}.multires.h5" \
+  cp "$h5_file" "$HG_DATA_DIR/${uid}.multires.h5"
+  conda run -n higlass-server python manage.py ingest_tileset \
+    --filename "$HG_DATA_DIR/${uid}.multires.h5" \
     --filetype multivec \
     --datatype multivec \
-    --uid "$genome"
-  echo "Registered $genome"
+    --uid "$uid"
+  echo "Registered $genome as $uid"
 done
 ```
 
@@ -177,21 +191,21 @@ done
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/higlass-server-src"
-source .venv/bin/activate
-python manage.py runserver localhost:8989
+HIGLASS_SERVER_DIR="${HIGLASS_SERVER_DIR:-$SCRIPT_DIR/../../higlass-server}"
+cd "$HIGLASS_SERVER_DIR"
+conda run --no-capture-output -n higlass-server python manage.py runserver localhost:8989
 ```
 
-Once running, sanity-check with:
+Once running, sanity-check with (note the sanitized, dot-free UID):
 ```bash
-curl "http://localhost:8989/api/v1/tileset_info/?d=<a-genome-id>"
+curl "http://localhost:8989/api/v1/tileset_info/?d=<sanitized-genome-uid>"
 ```
 Re-run `register-tilesets.sh` any time Stage 5/6 is re-run and bacterial outputs change (it's idempotent — re-copying and re-ingesting the same UID overwrites the prior registration).
 
-`buildSpec.ts` points each genome's multivec track at `server: "http://localhost:8989/api/v1"`, `tilesetUid: "<genome-id>"`.
+`buildSpec.ts` points each genome's multivec track at `server: "http://localhost:8989/api/v1"`, `tilesetUid: "<genome-id with '.' replaced by '-'>"` — **not** the raw manifest `id` — matching `register-tilesets.sh`'s sanitization. `manifest.ts` or `buildSpec.ts` should centralize this `id → uid` transform in one place so the two scripts can't drift apart.
 
 Notes / things to verify once this is actually stood up (also listed under Open Items):
-- The management command name (`ingest_tileset` above) and exact flags can differ across higlass-server versions — confirm against whatever's on the branch `setup.sh` clones before trusting the script for all 7 genomes.
+- The management command name (`ingest_tileset` above) and flags were confirmed against the actual cloned branch during the smoke test above — this is no longer a guess, but re-verify if `setup.sh` ever clones a different higlass-server ref.
 - Django's dev server (`runserver`) is explicitly not meant for production, but that's fine here — this is a local, single-user, dev-only viewer per the Non-goals below.
 - CORS: the Next.js dev server (port 3000) and higlass-server (port 8989) are different origins — confirm `bacterial/page.tsx` can actually fetch tiles; may need `django-cors-headers` (already in higlass-server's `requirements.txt`) configured to allow `localhost:3000` if the default config doesn't.
 
@@ -217,7 +231,8 @@ Notes / things to verify once this is actually stood up (also listed under Open 
 
 ## Open items / risks
 
-- **higlass-server + clodius version compatibility, and exact ingestion command**: verify one bacterial genome's `.multires.h5` registers and tiles correctly end-to-end (including the `ingest_tileset` command name/flags used above) before trusting `register-tilesets.sh` to loop over all 7 — clodius and higlass-server evolve somewhat independently, worth a manual smoke test first.
+- ~~higlass-server + clodius version compatibility, and exact ingestion command~~ — **resolved**: smoke-tested end-to-end against a real bacterial genome (`C.callunae_DSC_20147_CP004354`). Found and fixed a genuine `clodius`/`h5py` version-skew bug (0.18.0's `multivec.py` assumes `bytes`, crashes under `h5py>=3`) by pinning `clodius==0.20.4` in the `higlass-server` conda env, and found a genuine tileset-UID bug (periods in the UID break tile-ID parsing) fixed by sanitizing `.`→`-` in `register-tilesets.sh`. Both are folded into "higlass-server setup" above. Remaining: re-run this same smoke test after `register-tilesets.sh` is committed as an actual file (right now it's only been run as ad hoc shell commands against one genome) to confirm the *scripted* loop-over-all-7 version behaves the same way.
+- **Bacterial genome IDs containing periods, beyond just the tileset UID**: the `.` → `-` sanitization above is scoped to the HiGlass UID specifically. Double check whether any other consumer of the manifest `id` (e.g. Next.js dynamic route segments in `[cluster]/[...path]/route.ts`) has similar delimiter assumptions before assuming `id` is safe to use unmodified everywhere.
 - **Exact Gosling sequence/text track schema**: confirm the `{start, end, base}` shape proposed for the reshaped Stage 5 output against current Gosling.js docs/examples before finalizing the format change — the field names should be verified against a working example, not assumed.
 - **CORS between Next.js dev server and higlass-server**: port 3000 and port 8989 are different origins; needs explicit CORS allowance on the higlass-server side.
 - **Live re-render vs. explicit "Generate" button** for the picker: worth a quick UX check once there's a working prototype — live re-render on every checkbox click could feel laggy with several large bacterial genomes' multivec tracks loading at once.
