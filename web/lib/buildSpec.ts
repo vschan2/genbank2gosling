@@ -59,7 +59,10 @@ function gcSkewTracks(genome: ManifestGenome, width: number) {
         mark: 'line' as const,
         x: { field: 'start', type: 'genomic' as const },
         xe: { field: 'end', type: 'genomic' as const },
-        y: { field: 'gc_skew', type: 'quantitative' as const },
+        // zeroBaseline defaults to true, which forces the y-domain to [0, max] and
+        // clips negative gc_skew values off the track. This series is a bounded
+        // ratio, so a fixed [-1, 1] domain is correct for every genome.
+        y: { field: 'gc_skew', type: 'quantitative' as const, domain: [-1, 1], zeroBaseline: false },
         color: { value: GC_SKEW_WINDOWED_COLOR },
         width,
         height: TRACK_HEIGHTS.gcSkewWindowed
@@ -69,7 +72,10 @@ function gcSkewTracks(genome: ManifestGenome, width: number) {
         mark: 'area' as const,
         x: { field: 'start', type: 'genomic' as const },
         xe: { field: 'end', type: 'genomic' as const },
-        y: { field: 'cumulative_gc_skew', type: 'quantitative' as const },
+        // Unbounded per-genome running sum, so domain can't be hardcoded like the
+        // windowed track above -- disable zeroBaseline so Gosling falls back to the
+        // actual [min, max] of this genome's data instead of clamping to [0, max].
+        y: { field: 'cumulative_gc_skew', type: 'quantitative' as const, zeroBaseline: false },
         color: { value: GC_SKEW_CUMULATIVE_COLOR },
         width,
         height: TRACK_HEIGHTS.gcSkewCumulative
@@ -97,7 +103,12 @@ function sequenceTrack(values: SequenceRecord[], width: number) {
             { mark: 'rect' as const },
             {
                 mark: 'text' as const,
+                size: { value: 24 },
                 color: { value: 'white' },
+                // Semantic zoom, matching gosling.js.org/?example=SEQUENCE: letters only
+                // render once a base's cell is wide enough to hold one (width rule) AND
+                // the view is zoomed in close enough to be useful (zoomLevel rule, which
+                // also skips the text-layout cost while zoomed out).
                 visibility: [
                     {
                         operation: 'less-than' as const,
@@ -105,6 +116,12 @@ function sequenceTrack(values: SequenceRecord[], width: number) {
                         threshold: '|xe-x|' as const,
                         transitionPadding: 30,
                         target: 'mark' as const
+                    },
+                    {
+                        operation: 'LT' as const,
+                        measure: 'zoomLevel' as const,
+                        threshold: 40,
+                        target: 'track' as const
                     }
                 ]
             }
@@ -116,7 +133,8 @@ function sequenceTrack(values: SequenceRecord[], width: number) {
             field: 'base',
             type: 'nominal' as const,
             domain: [...BASE_TYPES],
-            range: BASE_COLORS
+            range: BASE_COLORS,
+            legend: true
         },
         style: { textFontWeight: 'bold' as const },
         width,

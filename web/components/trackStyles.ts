@@ -47,5 +47,7 @@ export const TRACK_HEIGHTS = {
     annotation: 40,
     gcSkewWindowed: 40,
     gcSkewCumulative: 40,
-    sequence: 24
+    // Single track, not row-faceted: color fills the full height per base at
+    // low zoom, with the base letter overlaid once zoomed in far enough.
+    sequence: 60
 };
