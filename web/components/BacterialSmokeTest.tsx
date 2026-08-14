@@ -28,8 +28,12 @@ function buildSpec(width: number, rowHeight: number): GoslingSpec {
         tracks: [
             {
                 width,
-                // Gosling gives each `row` facet its own copy of `height`, so the track's
-                // actual rendered height is rowHeight * NUM_BASE_ROWS, not rowHeight itself.
+                // `height` here is the track's *total* rendered height, divided among the
+                // `row` facet's categories (confirmed by reading drawBar's rowHeight =
+                // trackHeight / rowCategories.length in gosling.js's compiled source) - not
+                // multiplied per row as originally assumed. rowHeight is really only 1/4 of
+                // `available` as a result, which happens to still look fine here since
+                // `available` (full viewport height) leaves plenty of margin.
                 height: rowHeight,
                 data: {
                     type: 'multivec',

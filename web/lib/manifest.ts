@@ -19,3 +19,13 @@ export async function fetchManifest(cluster: ClusterName): Promise<Manifest> {
     }
     return res.json();
 }
+
+// higlass-server's tile-serving endpoint splits a requested tile ID on '.' and
+// takes the first segment as the tileset UUID, so a manifest id containing a
+// period (every bacterial genome, from the "Genus-abbrev.species" naming
+// convention) breaks tile lookups unless sanitized. register-tilesets.sh
+// applies this same '.' -> '-' transform when registering each tileset -
+// centralized here so buildSpec.ts can't drift out of sync with it.
+export function toTilesetUid(id: string): string {
+    return id.replace(/\./g, '-');
+}

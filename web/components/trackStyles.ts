@@ -49,5 +49,13 @@ export const TRACK_HEIGHTS = {
     gcSkewCumulative: 40,
     // Single track, not row-faceted: color fills the full height per base at
     // low zoom, with the base letter overlaid once zoomed in far enough.
-    sequence: 60
+    sequence: 60,
+    // Row-faceted (row: 'base', 4 categories: A/T/G/C). Contrary to an earlier
+    // assumption, Gosling's `height` is the *total* track height, divided
+    // among the row categories (confirmed by reading drawBar's rowHeight =
+    // trackHeight / rowCategories.length in node_modules/gosling.js/dist) -
+    // it is not multiplied per row. Sized a bit taller than the single-row
+    // 40px tracks above so each of the 4 A/T/G/C sub-rows (~15px) stays
+    // legible.
+    multivec: 60
 };
