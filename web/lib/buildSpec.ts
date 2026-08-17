@@ -6,7 +6,8 @@ import {
     FEATURE_COLORS,
     BASE_TYPES,
     BASE_COLORS,
-    GC_SKEW_WINDOWED_COLOR,
+    GC_SKEW_POSITIVE_COLOR,
+    GC_SKEW_NEGATIVE_COLOR,
     GC_SKEW_CUMULATIVE_COLOR,
     TRACK_HEIGHTS
 } from '@/components/trackStyles';
@@ -57,16 +58,32 @@ function gcSkewTracks(cluster: ClusterName, genome: ManifestGenome, width: numbe
     // series differ by orders of magnitude in range (gc_skew is roughly
     // -1..1, cumulative_gc_skew is an unbounded running sum), so sharing one
     // y-scale would flatten the windowed line to invisible.
-    const windowed = {
+    const windowedPositive = {
         data,
         mark: 'line' as const,
         x: { field: 'start', type: 'genomic' as const },
         xe: { field: 'end', type: 'genomic' as const },
-        // zeroBaseline defaults to true, which forces the y-domain to [0, max] and
-        // clips negative gc_skew values off the track. This series is a bounded
-        // ratio, so a fixed [-1, 1] domain is correct for every genome.
-        y: { field: 'gc_skew', type: 'quantitative' as const, domain: [-1, 1], zeroBaseline: false },
-        color: { value: GC_SKEW_WINDOWED_COLOR },
+        y: { field: 'gc_skew', type: 'quantitative' as const, domain: [0, 1], zeroBaseline: true },
+        color: { value: GC_SKEW_POSITIVE_COLOR },
+        width,
+        height: TRACK_HEIGHTS.gcSkewWindowed
+    };
+    // `domain: [0, -1]` + `flip: true` (not `[-1, 0]`, no flip) is what puts
+    // this track's zero-line at its *top* edge instead of its bottom:
+    // `flip` reverses the y channel's pixel range to [rowHeight, 0]
+    // (confirmed in gosling.js's compiled source), so with this domain,
+    // value 0 lands at pixel 0 (top) and -1 lands at pixel rowHeight
+    // (bottom). Stacked directly under windowedPositive - whose own zero
+    // sits at its bottom edge - the two tracks' zero-lines meet at the
+    // shared boundary, giving one continuous diverging skew line: positive
+    // spikes up, negative spikes down from the same visual baseline.
+    const windowedNegative = {
+        data,
+        mark: 'line' as const,
+        x: { field: 'start', type: 'genomic' as const },
+        xe: { field: 'end', type: 'genomic' as const },
+        y: { field: 'gc_skew', type: 'quantitative' as const, domain: [0, -1], flip: true },
+        color: { value: GC_SKEW_NEGATIVE_COLOR },
         width,
         height: TRACK_HEIGHTS.gcSkewWindowed
     };
@@ -83,7 +100,7 @@ function gcSkewTracks(cluster: ClusterName, genome: ManifestGenome, width: numbe
         width,
         height: TRACK_HEIGHTS.gcSkewCumulative
     };
-    return [windowed, cumulative];
+    return [windowedPositive, windowedNegative, cumulative];
 }
 
 interface SequenceRecord {
@@ -182,10 +199,14 @@ export async function buildMitogenomeSpec(genomes: ManifestGenome[], width: numb
 // Gosling's MultivecData type has no separate server/tilesetUid fields, just
 // a combined `url` built from the sanitized (dot-free) tileset UID - see
 // register-tilesets.sh and toTilesetUid()'s doc comment in manifest.ts.
+//
+// Semantic zoom, mirroring gosling.js's own "sequence" example: no `row`
+// facet, so all 4 bases stack into one lane. Zoomed out that reads as a
+// composition/proportion bar chart; zoomed in to ~1bp/column it collapses
+// to a solid color block per base, with its letter overlaid.
 function multivecTrack(genome: ManifestGenome, width: number) {
     return {
-        width,
-        height: TRACK_HEIGHTS.multivec,
+        alignment: 'overlay' as const,
         data: {
             type: 'multivec' as const,
             url: `${HIGLASS_SERVER}/tileset_info/?d=${toTilesetUid(genome.id)}`,
@@ -194,12 +215,46 @@ function multivecTrack(genome: ManifestGenome, width: number) {
             value: 'count',
             categories: [...BASE_TYPES]
         },
-        mark: 'bar' as const,
+        tracks: [
+            { mark: 'bar' as const, y: { field: 'count', type: 'quantitative' as const } },
+            {
+                // Without this filter, Gosling draws a text mark for all 4
+                // A/T/G/C matrix rows at every position (there's no `row` facet
+                // to spatially separate them), so 3 zero-count letters overlap
+                // the real one. Matches web/temp/sequence.json's reference
+                // pattern for the same multivec-derived sequence track.
+                dataTransform: [{ type: 'filter' as const, field: 'count', oneOf: [0], not: true }],
+                mark: 'text' as const,
+                size: { value: 24 },
+                color: { value: 'white' },
+                // Same semantic-zoom rule as the mitogenome sequenceTrack: letters
+                // only render once a base's cell is wide enough to hold one (width
+                // rule) AND the view is zoomed in close enough to be useful
+                // (zoomLevel rule, which also skips text-layout cost while zoomed out).
+                visibility: [
+                    {
+                        operation: 'less-than' as const,
+                        measure: 'width' as const,
+                        threshold: '|xe-x|' as const,
+                        transitionPadding: 30,
+                        target: 'mark' as const
+                    },
+                    {
+                        operation: 'LT' as const,
+                        measure: 'zoomLevel' as const,
+                        threshold: 40,
+                        target: 'track' as const
+                    }
+                ]
+            }
+        ],
         x: { field: 'start', type: 'genomic' as const },
         xe: { field: 'end', type: 'genomic' as const },
-        y: { field: 'count', type: 'quantitative' as const },
-        row: { field: 'base', type: 'nominal' as const, domain: [...BASE_TYPES] },
-        color: { field: 'base', type: 'nominal' as const, domain: [...BASE_TYPES], range: BASE_COLORS }
+        text: { field: 'base', type: 'nominal' as const },
+        color: { field: 'base', type: 'nominal' as const, domain: [...BASE_TYPES], range: BASE_COLORS },
+        style: { textFontWeight: 'bold' as const },
+        width,
+        height: TRACK_HEIGHTS.multivec
     };
 }
 

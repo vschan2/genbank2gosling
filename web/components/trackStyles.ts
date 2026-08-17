@@ -40,22 +40,22 @@ export const BASE_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100'];
 // magnitude in range, and superimposing them on one y-scale is a dual-axis
 // chart, which misrepresents relative magnitude). Each keeps its own single
 // y-scale and its own categorical-slot color for consistent identity.
-export const GC_SKEW_WINDOWED_COLOR = '#2a78d6';
+// The windowed track is further split into positive/negative halves (see
+// buildSpec.ts's gcSkewTracks) so each sign gets its own color - a single
+// color made negative skew hard to distinguish from positive at a glance.
+export const GC_SKEW_POSITIVE_COLOR = '#2a78d6';
+export const GC_SKEW_NEGATIVE_COLOR = '#e34948';
 export const GC_SKEW_CUMULATIVE_COLOR = '#eb6834';
 
 export const TRACK_HEIGHTS = {
-    annotation: 40,
+    annotation: 20,
     gcSkewWindowed: 40,
-    gcSkewCumulative: 40,
+    gcSkewCumulative: 60,
     // Single track, not row-faceted: color fills the full height per base at
     // low zoom, with the base letter overlaid once zoomed in far enough.
     sequence: 60,
-    // Row-faceted (row: 'base', 4 categories: A/T/G/C). Contrary to an earlier
-    // assumption, Gosling's `height` is the *total* track height, divided
-    // among the row categories (confirmed by reading drawBar's rowHeight =
-    // trackHeight / rowCategories.length in node_modules/gosling.js/dist) -
-    // it is not multiplied per row. Sized a bit taller than the single-row
-    // 40px tracks above so each of the 4 A/T/G/C sub-rows (~15px) stays
-    // legible.
+    // Same single-lane, stacked/semantic-zoom pattern as `sequence` above
+    // (see multivecTrack in buildSpec.ts) - not row-faceted, so this is one
+    // full-height lane, not 4 divided sub-rows.
     multivec: 60
 };
