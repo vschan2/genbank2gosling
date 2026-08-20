@@ -46,6 +46,10 @@ export const BASE_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100'];
 export const GC_SKEW_POSITIVE_COLOR = '#2a78d6';
 export const GC_SKEW_NEGATIVE_COLOR = '#e34948';
 export const GC_SKEW_CUMULATIVE_COLOR = '#eb6834';
+// Reuses the ncRNA hue from FEATURE_COLORS - GC-content and annotation
+// tracks never appear side by side in a way that would make the shared
+// color ambiguous.
+export const GC_CONTENT_COLOR = '#008300';
 
 export const TRACK_HEIGHTS = {
     annotation: 20,

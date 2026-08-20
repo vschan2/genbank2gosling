@@ -9,6 +9,7 @@ import {
     GC_SKEW_POSITIVE_COLOR,
     GC_SKEW_NEGATIVE_COLOR,
     GC_SKEW_CUMULATIVE_COLOR,
+    GC_CONTENT_COLOR,
     TRACK_HEIGHTS
 } from '@/components/trackStyles';
 
@@ -52,7 +53,7 @@ function gcSkewTracks(cluster: ClusterName, genome: ManifestGenome, width: numbe
         separator: '\t',
         chromosomeField: 'chrom',
         genomicFields: ['start', 'end'],
-        headerNames: ['chrom', 'start', 'end', 'gc_skew', 'cumulative_gc_skew']
+        headerNames: ['chrom', 'start', 'end', 'gc_skew', 'cumulative_gc_skew', 'gc_content']
     };
     // Two separate slim tracks, not one overlaid dual-axis track: the two
     // series differ by orders of magnitude in range (gc_skew is roughly
@@ -87,6 +88,19 @@ function gcSkewTracks(cluster: ClusterName, genome: ManifestGenome, width: numbe
         width,
         height: TRACK_HEIGHTS.gcSkewWindowed
     };
+    // Shares windowedPositive's [0, 1] domain/height - paired visually with
+    // it as "GC balance, then GC composition" - rather than getting its own
+    // TRACK_HEIGHTS entry.
+    const gcContent = {
+        data,
+        mark: 'area' as const,
+        x: { field: 'start', type: 'genomic' as const },
+        xe: { field: 'end', type: 'genomic' as const },
+        y: { field: 'gc_content', type: 'quantitative' as const, domain: [0, 1], zeroBaseline: true },
+        color: { value: GC_CONTENT_COLOR },
+        width,
+        height: TRACK_HEIGHTS.gcSkewWindowed
+    };
     const cumulative = {
         data,
         mark: 'area' as const,
@@ -100,7 +114,7 @@ function gcSkewTracks(cluster: ClusterName, genome: ManifestGenome, width: numbe
         width,
         height: TRACK_HEIGHTS.gcSkewCumulative
     };
-    return [windowedPositive, windowedNegative, cumulative];
+    return [windowedPositive, windowedNegative, gcContent, cumulative];
 }
 
 interface SequenceRecord {
