@@ -1,0 +1,7 @@
+{
+  "default": { "mode": "auto", "window_divisor": 1000, "step_divisor": 5 },
+  "clusters": {
+    "bacteria": { "window": 1000, "step": 1000 },
+    "mitogenome": { "window": 150, "step": 30 }
+  }
+}

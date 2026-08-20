@@ -108,12 +108,18 @@ Source genomes currently in `input/` (all complete, single-contig, circular):
 - Fields captured per feature: `start`, `end`, `strand`, `type`, `name` (from `gene`/`product`/`locus_tag` qualifiers, in that preference order).
 - Output: BED/CSV, one row per feature, one file per genome.
 
-### Stage 4 — Compute GC skew
-- Formula: `GC skew = (G − C) / (G + C)` over a sliding window; cumulative GC skew is also computed (useful for identifying origin/terminus regions in bacterial chromosomes).
-- **Window and step size are auto-scaled to genome length** rather than fixed, since mitogenomes (~15 kb) and bacterial chromosomes (~1–4 Mb) differ by ~2 orders of magnitude:
-  - `window ≈ length / 1000`
-  - `step ≈ window / 5`
-- Output: BedGraph/CSV (`chrom, start, end, gc_skew, cumulative_gc_skew`).
+### Stage 4 — Compute GC skew and GC content
+- Formula: `GC skew = (G − C) / (G + C)` over a sliding window; cumulative GC skew is also computed (useful for identifying origin/terminus regions in bacterial chromosomes). GC content is also computed per window: `(G + C) / window length`.
+- **Window and step size are fixed per cluster**, configured in `scripts/gc_skew_config.json` rather than hardcoded, since mitogenomes (~15 kb) and bacterial chromosomes (~1–4 Mb) differ by ~2 orders of magnitude:
+
+  | Cluster | Window | Step |
+  |---|---|---|
+  | `bacteria` | 1000 bp | 1000 bp (non-overlapping) |
+  | `mitogenome` | 150 bp | 30 bp |
+
+  A cluster with no entry in the config falls back to the config's `default` auto-scale formula (`window ≈ length / 1000`, `step ≈ window / 5`), so a newly added cluster still works without code changes until it gets its own tuned values. See `specs/spec-003-gc-window-metrics.md`.
+- **Boundary windows wrap around** rather than truncating: since every genome in this pipeline is circular, a window running past the sequence end pulls its remaining bases from the start of the sequence, keeping windowed GC skew and GC content full-length even at the boundary. The reported `end` coordinate still stays capped at the genome length (matches the declared chromosome length Gosling uses for its coordinate space); only the G/C counts feeding `gc_skew`/`gc_content` wrap. Cumulative GC skew is unaffected — it's a single running pass with no windowing edge case.
+- Output: BedGraph/CSV (`chrom, start, end, gc_skew, cumulative_gc_skew, gc_content`).
 
 ### Stage 5 — Prepare per-base sequence track data
 The method depends on genome size, since Gosling loads inline data client-side without automatic tiling:
@@ -146,7 +152,7 @@ Multivec construction (bacterial genomes only):
 | `<genome>.fasta` | FASTA | Raw nucleotide sequence |
 | `<genome>_meta.json` | JSON | Length, topology, accession, organism |
 | `<genome>_annotations.bed` | BED/CSV | Gene/feature intervals with strand, type, name |
-| `<genome>_gc_skew.bedgraph` | BedGraph/CSV | Windowed and cumulative GC skew |
+| `<genome>_gc_skew.bedgraph` | BedGraph/CSV | Windowed and cumulative GC skew, plus windowed GC content |
 | `<genome>_sequence.json` (mitogenomes) | JSON | Per-base sequence, inline, as positioned records `{chrom, start, end, base}` |
 | `<genome>_multivec/` (bacteria) | Static tile directory | Multi-resolution per-base pyramid |
 | `manifest.json` (per cluster, at `output/<cluster>/manifest.json`) | JSON | List of genomes grouped into that cluster: `id`, `organism`, `accession`, `length` |
@@ -154,4 +160,3 @@ Multivec construction (bacterial genomes only):
 ## Open Items
 
 - Homology/synteny linking (cross-genome comparison) — design deferred to a later phase of the project.
-- **(Optional)** Stage 4's windowed GC skew currently truncates the final sliding window at the end of the sequence rather than wrapping around, even though all genomes in this pipeline are circular. SkewIT ("The Skew Index Test for large-scale GC Skew analysis of bacterial genomes, Lu & Salzberg, 2020) handles this by appending the first `L/2` bases of the sequence onto its end before windowing, so boundary windows are full-length instead of shrinking. The cumulative GC skew column doesn't need this treatment — per "Analyzing genomes with cumulative skew diagrams," (Grigoriev, 1998) cumulative skew is a single running pass over the sequence and has no windowing edge case to handle.
